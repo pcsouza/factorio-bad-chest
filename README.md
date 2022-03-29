@@ -63,3 +63,7 @@ Deconstruction and upgrades use X,Y as the center of the area. This can be chang
 The mod also adds a Resource Scanner that can help detect places to build.
 
 ![Resource Scanner](docs/scanner.png)
+
+## Patorio additions
+
+On-tick and on deconstruction planner applied by player, resource scanners check for friendly entities queued for deconstruction, output on `siganl-D` in the circuit network.
