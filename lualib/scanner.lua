@@ -33,7 +33,7 @@ function on_tick_scanner(network)
   changed = signal_changed(scanner, network, "height", "height_signal") or changed
   if changed then
     -- Scan the new area
-    scan_resources(scanner)
+    scan_resources(scanner, true)
     -- Update any open scanner guis
     for _, player in pairs(game.players) do
       if player.opened
@@ -52,6 +52,7 @@ function on_built_scanner(entity, event)
     y = 0,
     width = 64,
     height = 64,
+    cached_resources = {item = {}, fluid = {}, virtual = {}}
   }
   local tags = event.tags
   if event.source and event.source.valid then
@@ -74,7 +75,7 @@ function on_built_scanner(entity, event)
   global.scanners[entity.unit_number] = scanner
   script.register_on_entity_destroyed(entity)
   update_scanner_network(scanner)
-  scan_resources(scanner)
+  scan_resources(scanner, true)
 end
 
 -- Delete signals from uninstalled mods
@@ -654,7 +655,7 @@ function set_scanner_value(element)
   -- Run a scan if the area has changed
   if scanner[key] ~= value then
     scanner[key] = value
-    scan_resources(scanner)
+    scan_resources(scanner, true)
   end
 
   -- The user might have changed a signal without changing the area,
@@ -871,10 +872,13 @@ function set_slot_button(button, value, signal)
 end
 
 -- Scan the area for resources
-function scan_resources(scanner)
+function scan_resources(scanner, full_scan)
   if not scanner then return end
   if not scanner.entity.valid then return end
   local resources = {item = {}, fluid = {}, virtual = {}}
+  if not full_scan then
+    resources = util.table.deepcopy(scanner.cached_resources)
+  end
   local p = scanner.entity.position
   local force = scanner.entity.force
   local surface = scanner.entity.surface
@@ -898,39 +902,56 @@ function scan_resources(scanner)
   local y1 = p.y + y - scanner.height/2 - 1/256
   local y2 = p.y + y + scanner.height/2 - 1/256
 
-  -- Search one chunk at a time
-  for x = x1, math.ceil(x2 / 32) * 32, 32 do
-    for y = y1, math.ceil(y2 / 32) * 32, 32 do
-      local chunk_x = math.floor(x / 32)
-      local chunk_y = math.floor(y / 32)
-      -- Chunk must be charted
-      if force.is_chunk_charted(surface, {chunk_x, chunk_y}) then
-        local left = chunk_x * 32
-        local right = left + 32
-        local top = chunk_y * 32
-        local bottom = top + 32
-        if left < x1 then left = x1 end
-        if right > x2 then right = x2 end
-        if top < y1 then top = y1 end
-        if bottom > y2 then bottom = y2 end
-        local area = {{left, top}, {right, bottom}}
-        count_resources(force, surface, area, resources, blacklist)
-      else
-        -- Add uncharted chunk
-        resources.virtual["signal-black"] = (resources.virtual["signal-black"] or 0) + 1
+  local total_scanner_area = {{x1, y1}, {x2, y2}}
+  local behavior = scanner.entity.get_control_behavior()
+
+  -- Search one chunk at a time if we're full-scanning. Otherwise copy existing values
+  if full_scan then
+    for x = x1, math.ceil(x2 / 32) * 32, 32 do
+      for y = y1, math.ceil(y2 / 32) * 32, 32 do
+        local chunk_x = math.floor(x / 32)
+        local chunk_y = math.floor(y / 32)
+        -- Chunk must be charted
+        if force.is_chunk_charted(surface, {chunk_x, chunk_y}) then
+          local left = chunk_x * 32
+          local right = left + 32
+          local top = chunk_y * 32
+          local bottom = top + 32
+          if left < x1 then left = x1 end
+          if right > x2 then right = x2 end
+          if top < y1 then top = y1 end
+          if bottom > y2 then bottom = y2 end
+          local area = {{left, top}, {right, bottom}}
+          count_resources(force, surface, area, resources, blacklist)
+        else
+          -- Add uncharted chunk
+          resources.virtual["signal-black"] = (resources.virtual["signal-black"] or 0) + 1
+        end
       end
     end
   end
 
+  -- Always scan for deconstructing entities
+  local deconstructing_entities = surface.count_entities_filtered{
+    force = force,
+    area = total_scanner_area,
+    to_be_deconstructed = true
+  }
+  if deconstructing_entities > 0 then
+    resources.virtual["signal-D"] = deconstructing_entities
+  end
+
   -- Copy resources to combinator output
-  local behavior = scanner.entity.get_control_behavior()
   local index = 1
   for type, resource in pairs(resources) do
     for name, count in pairs(resource) do
       -- Avoid int32 overflow
       if count > 2147483647 then count = 2147483647 end
       if count ~= 0 then
-        behavior.set_signal(index, {signal={type=type, name=name}, count=count})
+        local previous_signal = behavior.get_signal(index)
+        if not previous_signal.signal or not (previous_signal.signal.type == type and previous_signal.signal.name == type and previous_signal.count == count) then
+          behavior.set_signal(index, {signal={type=type, name=name}, count=count})
+        end  
         index = index + 1
       end
     end
@@ -938,9 +959,15 @@ function scan_resources(scanner)
   -- Set the remaining output slots to nil
   local max = scanner.entity.prototype.item_slot_count
   while index <= max do
-    behavior.set_signal(index, nil)
+    local previous_signal = behavior.get_signal(index)
+    if previous_signal.signal then
+      behavior.set_signal(index, nil)
+    end
     index = index + 1
   end
+
+  -- Cache resource counts
+  scanner.cached_resources = util.table.deepcopy(resources)
 end
 
 -- Count the resources in a chunk

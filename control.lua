@@ -9,6 +9,7 @@ function on_init()
   global.networks = {}
   global.scanners = {}
   global.blueprints = {}
+  global.scanner_update_index = nil
   on_mods_changed()
 end
 
@@ -86,7 +87,7 @@ function on_setting_changed(event)
   end
 end
 
-function on_tick()
+function on_tick(event)
   -- Check one deployer per tick for new circuit network connections
   local index = global.deployer_index
   global.deployer_index = next(global.deployers, global.deployer_index)
@@ -99,7 +100,7 @@ function on_tick()
     end
   end
 
-  -- Read all circuit networks
+  -- Read all circuit networks 
   for _, network in pairs(global.networks) do
     if network.deployer.valid then
       if network.red and not network.red.valid then
@@ -113,6 +114,15 @@ function on_tick()
       else
         on_tick_deployer(network)
       end
+    end
+  end
+
+  -- Update all scanners with "cheap pass", one scanner per tick
+  local index = global.scanner_update_index
+  global.scanner_update_index = next(global.scanners, global.scanner_update_index)
+  if global.scanners[index] then
+    if global.scanners[index].entity.valid then
+      scan_resources(global.scanners[index], false)
     end
   end
 end
