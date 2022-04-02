@@ -937,9 +937,7 @@ function scan_resources(scanner, full_scan)
     area = total_scanner_area,
     to_be_deconstructed = true
   }
-  if deconstructing_entities > 0 then
-    resources.virtual["signal-D"] = deconstructing_entities
-  end
+  resources.virtual["signal-D"] = deconstructing_entities
 
   -- Copy resources to combinator output
   local index = 1
