@@ -938,6 +938,13 @@ function scan_resources(scanner, full_scan)
     to_be_deconstructed = true
   }
   resources.virtual["signal-D"] = deconstructing_entities
+  -- Always scan for ghost entities
+  local ghost_entities = surface.count_entities_filtered{
+    force = force,
+    area = total_scanner_area,
+    collision_mask = "ghost-layer"
+  }
+  resources.virtual["signal-G"] = ghost_entities
 
   -- Copy resources to combinator output
   local index = 1
